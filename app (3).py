@@ -26,15 +26,20 @@ except: REPORTLAB_OK = False
 st.set_page_config(page_title="진심카스테라 수익 분석기", page_icon="🍰", layout="wide")
 st.markdown("""
 <style>
-/* Streamlit 하단 브랜딩 숨기기 */
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-div[data-testid="stToolbar"] {visibility: hidden;}
-div[data-testid="stDecoration"] {visibility: hidden;}
-.viewerBadge_container__1QSob {display: none;}
-.styles_viewerBadge__1yB5_ {display: none;}
-[data-testid="manage-app-button"] {display: none;}
+/* Streamlit 하단 브랜딩 완전 숨기기 */
+#MainMenu {visibility: hidden !important;}
+footer {visibility: hidden !important;}
+header {visibility: hidden !important;}
+div[data-testid="stToolbar"] {display: none !important;}
+div[data-testid="stDecoration"] {display: none !important;}
+div[data-testid="stStatusWidget"] {display: none !important;}
+.viewerBadge_container__1QSob {display: none !important;}
+.styles_viewerBadge__1yB5_ {display: none !important;}
+[data-testid="manage-app-button"] {display: none !important;}
+button[kind="manage"] {display: none !important;}
+.stAppDeployButton {display: none !important;}
+div[class*="manageApp"] {display: none !important;}
+div[class*="manage-app"] {display: none !important;}
 
 .section-label{font-size:.82rem;font-weight:700;letter-spacing:.06em;color:#fff;background:#0F6E56;padding:4px 12px;border-radius:6px;display:inline-block;margin-bottom:.6rem;margin-top:1.4rem;}
 .result-card{border-radius:16px;padding:1.6rem;text-align:center;color:white;margin-bottom:1rem;}
