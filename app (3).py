@@ -443,11 +443,23 @@ with left:
         manage=st.number_input("관리비 (원)",min_value=0,value=0,step=10000,format="%d")
         if manage > 0:
             st.markdown(f'<div class="hangul-hint">→ {num_to_korean(manage)}</div>', unsafe_allow_html=True)
-        labor=st.number_input("인건비 합계 (세전, 원)",min_value=0,value=0,step=10000,format="%d")
+        labor=st.number_input("직원 실수령액 합계 (원)",min_value=0,value=0,step=10000,format="%d",
+                              help="실제 통장에 입금한 금액 합계")
         if labor > 0:
             st.markdown(f'<div class="hangul-hint">→ {num_to_korean(labor)}</div>', unsafe_allow_html=True)
     with c2:
-        # ✅ 수정3: 기장료, 포스기유지비 추가
+        insurance=st.number_input("4대보험 납부액 합계 (원)",min_value=0,value=0,step=10000,format="%d",
+                                  help="국가에 납부한 4대보험 총액 (직원부담+회사부담 합산)")
+        if insurance > 0:
+            st.markdown(f'<div class="hangul-hint">→ {num_to_korean(insurance)}</div>', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="insurance-box">
+            💡 <b>인건비 실지출 합계</b><br>
+            &nbsp;&nbsp;직원 실수령액: {labor:,}원<br>
+            &nbsp;&nbsp;4대보험 납부액: + {insurance:,}원<br>
+            &nbsp;&nbsp;실제 총지출: <b>{int(labor+insurance):,}원</b> ({num_to_korean(labor+insurance)})
+            </div>""", unsafe_allow_html=True)
+        # ✅ 수정3: 기장료, 포스기유지비
         jangryeo=st.number_input("기장료 (세무사비, 원)",min_value=0,value=0,step=10000,format="%d")
         if jangryeo > 0:
             st.markdown(f'<div class="hangul-hint">→ {num_to_korean(jangryeo)}</div>', unsafe_allow_html=True)
@@ -455,20 +467,9 @@ with left:
         if pos_maint > 0:
             st.markdown(f'<div class="hangul-hint">→ {num_to_korean(pos_maint)}</div>', unsafe_allow_html=True)
 
-    # ✅ 수정4: 4대보험 자동계산 (회사부담 10.5%)
-    insurance = int(labor * 0.105)
-    if labor > 0:
-        st.markdown(f"""
-        <div class="insurance-box">
-        💡 <b>4대보험 자동계산 (회사부담 10.5%)</b><br>
-        &nbsp;&nbsp;직원 부담분: 약 {int(labor*0.105):,}원 (직원 월급에서 차감)<br>
-        &nbsp;&nbsp;회사 부담분: 약 {insurance:,}원 → <b>고정비에 자동 포함</b><br>
-        &nbsp;&nbsp;실제 인건비 총지출: <b>{int(labor + insurance):,}원</b> ({num_to_korean(labor + insurance)})
-        </div>""", unsafe_allow_html=True)
-
-    # ✅ 고정비 합계 = 입력값 그대로 + 4대보험 회사부담분
+    # 고정비 합계 = 실수령액 + 4대보험 납부액 + 기타
     fixed_total = rent + manage + labor + insurance + jangryeo + pos_maint
-    st.info(f"💼 고정비 합계 (4대보험 포함): **{fixed_total:,}원** ({num_to_korean(fixed_total)})")
+    st.info(f"💼 고정비 합계: **{fixed_total:,}원** ({num_to_korean(fixed_total)})")
 
     st.markdown('<p class="section-label">⑤ 변동비</p>',unsafe_allow_html=True)
     c3,c4=st.columns(2)
@@ -1026,29 +1027,45 @@ with right:
             monthly_data.sort(key=lambda x: x['월'])
             months=[d['월'] for d in monthly_data]
 
-            tab_m1,tab_m2,tab_m3,tab_m4,tab_m5,tab_m6,tab_m7=st.tabs([
-                "순이익","총매출","영업이익률","수수료","변동비율","객단가","변동비 세부"
+            tab_m1,tab_m2,tab_m3,tab_m4,tab_m5=st.tabs([
+                "순이익","총매출","수수료 총액","비용 상세","채널별 매출"
             ])
 
-            def line_chart(y_vals, color, fmt_fn, height=230):
+            def line_chart(y_vals, color, fmt_fn, height=280):
+                max_v = max(y_vals) if y_vals else 1
                 fig=go.Figure(go.Scatter(
                     x=months, y=y_vals, mode='lines+markers+text',
                     line=dict(color=color,width=2), marker=dict(size=8),
                     text=[fmt_fn(v) for v in y_vals], textposition='top center'))
-                fig.update_layout(height=height,margin=dict(t=30,b=10,l=10,r=10),showlegend=False)
+                fig.update_layout(height=height, margin=dict(t=50,b=10,l=10,r=10),
+                                  showlegend=False,
+                                  yaxis=dict(range=[min(y_vals)*0.85, max_v*1.2]))
                 return fig
 
-            def bar_chart(y_vals, color, fmt_fn, height=230):
+            def bar_chart(y_vals, color, fmt_fn, height=280):
                 fig=go.Figure(go.Bar(
                     x=months, y=y_vals, marker_color=color,
                     text=[fmt_fn(v) for v in y_vals], textposition='outside'))
-                fig.update_layout(height=height,margin=dict(t=30,b=10,l=10,r=10),showlegend=False)
+                fig.update_layout(height=height, margin=dict(t=50,b=10,l=10,r=10),
+                                  showlegend=False,
+                                  yaxis=dict(range=[0, max(y_vals)*1.2 if y_vals else 1]))
                 return fig
 
             with tab_m1:
+                # 순이익 + 이익률% + 객단가 텍스트
                 st.plotly_chart(line_chart(
                     [d['순이익'] for d in monthly_data],'#0F6E56',
                     lambda v:f"{v/10000:.0f}만"), use_container_width=True)
+                c1,c2=st.columns(2)
+                with c1:
+                    st.markdown("**📊 영업이익률 추이**")
+                    for d in monthly_data:
+                        color="#0F6E56" if d['영업이익률']>=20 else "#f97316" if d['영업이익률']>=10 else "#dc2626"
+                        st.markdown(f'<div style="display:flex;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid rgba(128,128,128,.1);"><span>{d["월"]}</span><span style="font-weight:700;color:{color}">{d["영업이익률"]:.1f}%</span></div>',unsafe_allow_html=True)
+                with c2:
+                    st.markdown("**🛒 배달 객단가 추이**")
+                    for d in monthly_data:
+                        st.markdown(f'<div style="display:flex;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid rgba(128,128,128,.1);"><span>{d["월"]}</span><span style="font-weight:700;">{d["평균객단가"]:,.0f}원</span></div>',unsafe_allow_html=True)
 
             with tab_m2:
                 st.plotly_chart(bar_chart(
@@ -1056,27 +1073,13 @@ with right:
                     lambda v:f"{v/10000:.0f}만"), use_container_width=True)
 
             with tab_m3:
-                st.plotly_chart(line_chart(
-                    [d['영업이익률'] for d in monthly_data],'#7c3aed',
-                    lambda v:f"{v:.1f}%"), use_container_width=True)
-
-            with tab_m4:
                 st.plotly_chart(bar_chart(
                     [d['수수료'] for d in monthly_data],'#dc2626',
                     lambda v:f"{v/10000:.0f}만"), use_container_width=True)
+                st.caption("💡 배달앱 + 카드수수료 합산 금액이에요. 이 돈이 줄어야 순이익이 늘어요!")
 
-            with tab_m5:
-                st.plotly_chart(line_chart(
-                    [d['변동비율'] for d in monthly_data],'#f97316',
-                    lambda v:f"{v:.1f}%"), use_container_width=True)
-
-            with tab_m6:
-                st.plotly_chart(bar_chart(
-                    [d['평균객단가'] for d in monthly_data],'#059669',
-                    lambda v:f"{v:,.0f}원"), use_container_width=True)
-
-            with tab_m7:
-                # 변동비 항목별 막대 그래프
+            with tab_m4:
+                # 변동비 세부 막대 + 재료비율 텍스트
                 item_colors={
                     '동원 물류비':'#1D9E75','만월상회 (음료원액)':'#f97316',
                     '계란':'#fbbf24','포장박스':'#6b7280',
@@ -1096,32 +1099,38 @@ with right:
                 fig_var.update_layout(
                     barmode='group', height=320,
                     margin=dict(t=20,b=10,l=10,r=10),
-                    legend=dict(orientation='h',y=-0.25,font_size=11))
+                    legend=dict(orientation='h',y=-0.3,font_size=11))
                 st.plotly_chart(fig_var,use_container_width=True)
-                st.caption("💡 항목별 지출을 월별로 비교해보세요. 갑자기 오른 항목이 있으면 원인을 확인해보세요!")
+                st.caption("💡 갑자기 오른 항목이 있으면 원인을 확인해보세요!")
 
-            # 플랫폼별 매출 비중 추이 (포스기 포함)
-            st.markdown("**📊 플랫폼별 매출 비중 추이**")
-            pf_colors_trend={
-                '배민':'#1D9E75','쿠팡':'#f97316','요기요':'#dc2626',
-                '땡겨요':'#7c3aed','네이버':'#059669','포스기':'#6b7280'
-            }
-            fig_pf=go.Figure()
-            for pf, color in pf_colors_trend.items():
-                vals=[d['플랫폼매출'].get(pf,0) for d in monthly_data]
-                if any(v>0 for v in vals):
-                    fig_pf.add_trace(go.Bar(
-                        name=pf, x=months, y=vals,
-                        marker_color=color,
-                        text=[f"{v/10000:.0f}만" if v>0 else "" for v in vals],
-                        textposition='inside', textfont_color='white'
-                    ))
-            fig_pf.update_layout(
-                barmode='stack', height=300,
-                margin=dict(t=10,b=10,l=10,r=10),
-                legend=dict(orientation='h',y=-0.2,font_size=11))
-            st.plotly_chart(fig_pf,use_container_width=True)
-            st.caption("💡 배달앱과 오프라인 비중 변화를 확인해보세요. 수수료 낮은 채널 비중이 늘수록 유리해요!")
+                # 재료비율 텍스트
+                st.markdown("**🥚 재료비율(변동비율) 추이**")
+                for d in monthly_data:
+                    color="#0F6E56" if d['변동비율']<=30 else "#f97316" if d['변동비율']<=35 else "#dc2626"
+                    st.markdown(f'<div style="display:flex;justify-content:space-between;padding:.3rem 0;border-bottom:1px solid rgba(128,128,128,.1);"><span>{d["월"]}</span><span style="font-weight:700;color:{color}">{d["변동비율"]:.1f}%</span></div>',unsafe_allow_html=True)
+
+            with tab_m5:
+                # 플랫폼별 매출 비중 (포스기 포함)
+                pf_colors_trend={
+                    '배민':'#1D9E75','쿠팡':'#f97316','요기요':'#dc2626',
+                    '땡겨요':'#7c3aed','네이버':'#059669','포스기':'#3b82f6'
+                }
+                fig_pf=go.Figure()
+                for pf, color in pf_colors_trend.items():
+                    vals=[d['플랫폼매출'].get(pf,0) for d in monthly_data]
+                    if any(v>0 for v in vals):
+                        fig_pf.add_trace(go.Bar(
+                            name=pf, x=months, y=vals,
+                            marker_color=color,
+                            text=[f"{v/10000:.0f}만" if v>0 else "" for v in vals],
+                            textposition='inside', textfont_color='white'
+                        ))
+                fig_pf.update_layout(
+                    barmode='stack', height=380,
+                    margin=dict(t=10,b=10,l=10,r=10),
+                    legend=dict(orientation='h',y=-0.15,font_size=11))
+                st.plotly_chart(fig_pf,use_container_width=True)
+                st.caption("💡 수수료 낮은 네이버·포스기 비중이 늘수록 유리해요!")
 
 
     st.divider()
