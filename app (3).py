@@ -323,7 +323,11 @@ def generate_excel(data):
             '최종순이익':data['final'],'영업이익률':data['margin'],
             '총주문건수':data['total_orders'],'평균객단가':data['avg_price'],
             '고정비':data['fixed_total'],'변동비':data['var_total'],'변동비율':변동비율,
+            '포스기매출':data.get('pos_sales',0),
         }
+        # 변동비 세부 항목 저장
+        for item,val in data['var_items']:
+            compare[f'변동비_{item}']=val
         for name,d in data['platforms'].items():
             compare[f'{name}순이익']=d['순이익'] if d else 0
             compare[f'{name}수수료율']=d['진짜수수료율']*100 if d else 0
@@ -489,26 +493,6 @@ with left:
 
     var_total=dongwon+manwol+eggs+boxes+delivery_agency+consumables+card_fee_etc+ad_cost
     st.info(f"📦 변동비 합계: **{var_total:,}원** ({num_to_korean(var_total)})")
-
-    st.divider()
-    st.markdown('<p class="section-label">⑦ AI 수익 분석</p>',unsafe_allow_html=True)
-    st.caption("모든 항목 입력 후 분석을 받으세요.")
-    if st.button("✨ AI 분석 받기", use_container_width=True, key="ai_btn"):
-        st.session_state["ai_btn_clicked"] = True
-
-    # ✅ 수정2: AI 스피너 — 버튼 바로 밑에 표시
-    if st.session_state.get("ai_btn_clicked") and not st.session_state.get("ai_comment"):
-        st.markdown("""
-        <div style="background:#E8F5E9;border-radius:8px;padding:12px 16px;margin-top:8px;font-size:.88rem;color:#1B5E20;">
-        🤖 <b>AI가 이번 달 데이터를 분석하고 있습니다...</b><br>
-        잠시만 기다려 주세요. (10~20초 소요)
-        </div>""", unsafe_allow_html=True)
-
-    if "ai_comment" in st.session_state and st.session_state["ai_comment"]:
-        st.markdown(
-            '<div class="detail-block" style="border-left:3px solid #0F6E56;">' +
-            st.session_state["ai_comment"].replace("\n","<br>") +
-            '</div>', unsafe_allow_html=True)
 
 with right:
     bd,bd_err=parse_baemin(baemin_file)   if baemin_file  else (None,None)
@@ -1013,11 +997,27 @@ with right:
             try:
                 df_m=pd.read_excel(f,sheet_name='비교데이터',index_col=0)
                 d=df_m.to_dict()['값']
+                # 변동비 세부 항목 읽기
+                var_items_data={}
+                for item_name in ['동원 물류비','만월상회 (음료원액)','계란','포장박스','배달대행비','소모품 카드결제','기타 카드수수료','광고비']:
+                    key=f'변동비_{item_name}'
+                    var_items_data[item_name]=float(d.get(key,0))
+                # 플랫폼별 매출
+                plat_sales={}
+                for p in ['배민','쿠팡','요기요','땡겨요','네이버']:
+                    plat_sales[p]=float(d.get(f'{p}매출',0))
+                plat_sales['포스기']=float(d.get('포스기매출',0))
+
                 monthly_data.append({
                     '월':str(d.get('분析월','')),
                     '순이익':float(d.get('최종순이익',0)),
                     '수수료':float(d.get('총수수료',0)),
                     '변동비율':float(d.get('변동비율',0))*100,
+                    '총매출':float(d.get('총매출',0)),
+                    '영업이익률':float(d.get('영업이익률',0)),
+                    '평균객단가':float(d.get('평균객단가',0)),
+                    '변동비_세부':var_items_data,
+                    '플랫폼매출':plat_sales,
                 })
             except: pass
         if len(monthly_data)>=2:
@@ -1025,152 +1025,104 @@ with right:
             st.markdown("**📈 월별 추이**")
             monthly_data.sort(key=lambda x: x['월'])
             months=[d['월'] for d in monthly_data]
-            tab_m1,tab_m2,tab_m3=st.tabs(["순이익","수수료","변동비율"])
+
+            tab_m1,tab_m2,tab_m3,tab_m4,tab_m5,tab_m6,tab_m7=st.tabs([
+                "순이익","총매출","영업이익률","수수료","변동비율","객단가","변동비 세부"
+            ])
+
+            def line_chart(y_vals, color, fmt_fn, height=230):
+                fig=go.Figure(go.Scatter(
+                    x=months, y=y_vals, mode='lines+markers+text',
+                    line=dict(color=color,width=2), marker=dict(size=8),
+                    text=[fmt_fn(v) for v in y_vals], textposition='top center'))
+                fig.update_layout(height=height,margin=dict(t=30,b=10,l=10,r=10),showlegend=False)
+                return fig
+
+            def bar_chart(y_vals, color, fmt_fn, height=230):
+                fig=go.Figure(go.Bar(
+                    x=months, y=y_vals, marker_color=color,
+                    text=[fmt_fn(v) for v in y_vals], textposition='outside'))
+                fig.update_layout(height=height,margin=dict(t=30,b=10,l=10,r=10),showlegend=False)
+                return fig
+
             with tab_m1:
-                fig_m=go.Figure(go.Scatter(x=months,y=[d['순이익'] for d in monthly_data],
-                    mode='lines+markers+text',line=dict(color='#0F6E56',width=2),marker=dict(size=8),
-                    text=[f"{v/10000:.0f}만" for v in [d['순이익'] for d in monthly_data]],
-                    textposition='top center'))
-                fig_m.update_layout(height=230,margin=dict(t=20,b=10,l=10,r=10),showlegend=False)
-                st.plotly_chart(fig_m,use_container_width=True)
+                st.plotly_chart(line_chart(
+                    [d['순이익'] for d in monthly_data],'#0F6E56',
+                    lambda v:f"{v/10000:.0f}만"), use_container_width=True)
+
             with tab_m2:
-                fig_f=go.Figure(go.Bar(x=months,y=[d['수수료'] for d in monthly_data],
-                    marker_color='#dc2626',
-                    text=[f"{v/10000:.0f}만" for v in [d['수수료'] for d in monthly_data]],
-                    textposition='outside'))
-                fig_f.update_layout(height=230,margin=dict(t=20,b=10,l=10,r=10),showlegend=False)
-                st.plotly_chart(fig_f,use_container_width=True)
+                st.plotly_chart(bar_chart(
+                    [d['총매출'] for d in monthly_data],'#3b82f6',
+                    lambda v:f"{v/10000:.0f}만"), use_container_width=True)
+
             with tab_m3:
-                fig_v=go.Figure(go.Scatter(x=months,y=[d['변동비율'] for d in monthly_data],
-                    mode='lines+markers+text',line=dict(color='#f97316',width=2),marker=dict(size=8),
-                    text=[f"{v:.1f}%" for v in [d['변동비율'] for d in monthly_data]],
-                    textposition='top center'))
-                fig_v.update_layout(height=230,margin=dict(t=20,b=10,l=10,r=10),showlegend=False)
-                st.plotly_chart(fig_v,use_container_width=True)
+                st.plotly_chart(line_chart(
+                    [d['영업이익률'] for d in monthly_data],'#7c3aed',
+                    lambda v:f"{v:.1f}%"), use_container_width=True)
 
-    # ── ✅ AI 분석 실제 호출 ──────────────────────────────────────────
-    import os as _os, requests as _requests
-    # Streamlit Cloud: secrets에서 읽기 / 로컬: 환경변수에서 읽기
-    try:
-        _ANTHROPIC_API_KEY = st.secrets["ANTHROPIC_API_KEY"]
-    except:
-        _ANTHROPIC_API_KEY = _os.environ.get("ANTHROPIC_API_KEY", "")
-    _CLAUDE_MODEL="claude-sonnet-4-6"
-    _CLAUDE_URL="https://api.anthropic.com/v1/messages"
+            with tab_m4:
+                st.plotly_chart(bar_chart(
+                    [d['수수료'] for d in monthly_data],'#dc2626',
+                    lambda v:f"{v/10000:.0f}만"), use_container_width=True)
 
-    if st.session_state.get("ai_btn_clicked") and total_gross>0:
-        st.session_state["ai_btn_clicked"]=False
-        if not _ANTHROPIC_API_KEY:
-            st.error("AI 분석을 사용하려면 Streamlit Cloud Secrets에 ANTHROPIC_API_KEY를 등록해주세요.")
-        else:
-            with st.spinner("🤖 AI가 이번 달 데이터를 열심히 분석 중입니다... (10~20초 소요)"):
-                pf_detail=[]
-                for _n,_d in [("배민",bd),("쿠팡",cp),("요기요",yg),("땡겨요",dg),("네이버",nv)]:
-                    if _d and _d["총매출"]>0:
-                        _fr=_d["진짜수수료율"]*100
-                        _cr=(1-_d["진짜수수료율"]-변동비율)*100
-                        _건수=_d.get("주문건수",0)
-                        _객단가=_d.get("객단가",0)
-                        pf_detail.append(
-                            f"{_n}: 매출 {_d['총매출']/10000:.1f}만원 / 수수료율 {_fr:.1f}% / "
-                            f"실수령 {_d['순이익']/10000:.1f}만원 / 100원팔면 {_cr:.1f}원남음 / "
-                            f"주문 {_건수}건 / 객단가 {_객단가:,.0f}원"
-                        )
-                _bd_detail=""
-                if bd and bd["총매출"]>0:
-                    _bd_detail=(f"배민 세부: 광고비 {abs(bd['광고비'])/10000:.1f}만원({abs(bd['광고비'])/bd['총매출']*100:.1f}%), "
-                               f"즉시할인 {abs(bd['즉시할인'])/10000:.1f}만원({abs(bd['즉시할인'])/bd['총매출']*100:.1f}%), "
-                               f"배달비 {abs(bd['배달비'])/10000:.1f}만원")
-                _cp_detail=""
-                if cp and cp["총매출"]>0:
-                    _cp_detail=(f"쿠팡 세부: 광고비 {cp['광고비']/10000:.1f}만원({cp['광고비']/cp['총매출']*100:.1f}%), "
-                               f"상점쿠폰+할인 {(cp['상점쿠폰']+cp['즉시할인'])/10000:.1f}만원({(cp['상점쿠폰']+cp['즉시할인'])/cp['총매출']*100:.1f}%), "
-                               f"배달비 {cp['배달비']/10000:.1f}만원")
-                _yg_detail=""
-                if yg and yg["총매출"]>0:
-                    _yg_detail=(f"요기요 세부: 가게부담할인 {(yg['타임딜할인']+yg['쿠폰할인'])/10000:.1f}만원, "
-                               f"광고비 {yg['광고비']/10000:.1f}만원")
-                _delivery_fee_pct=(total_platform_fee/delivery_gross*100) if delivery_gross>0 else 0
-                _인건비실지출=labor+insurance
-                _재료비율=재료비율*100
-                _dg_실질수수료율=(dg['실질수수료율']*100) if dg and dg.get('실질수수료율') else 0
+            with tab_m5:
+                st.plotly_chart(line_chart(
+                    [d['변동비율'] for d in monthly_data],'#f97316',
+                    lambda v:f"{v:.1f}%"), use_container_width=True)
 
-                _prompt=f"""당신은 배달음식 프랜차이즈 가맹점을 잘 아는 친한 회계사입니다.
-아래 진심카스테라 가맹점의 이번 달 실제 숫자를 보고, 사장님이 바로 이해하고 실행할 수 있게 분석해주세요.
+            with tab_m6:
+                st.plotly_chart(bar_chart(
+                    [d['평균객단가'] for d in monthly_data],'#059669',
+                    lambda v:f"{v:,.0f}원"), use_container_width=True)
 
-[중요 규칙]
-- "공헌이익률" 이라는 말 절대 쓰지 말고 반드시 "100원 팔면 XX원 남음" 으로 표현
-- 전문 용어 최소화, 50~60대 사장님도 바로 이해할 수 있는 쉬운 말로
-- 숫자 근거 항상 명시, "약 XX만원 더 남아요" 형태로 효과 계산
-- 딱딱한 보고서 말투 금지, 친근하게 대화하듯이
-- 포장박스 단가 지적 절대 금지 (본사 납품 항목). 단 박스비가 매출 대비 유독 높으면 "박스 비용이 평소보다 좀 많이 나왔네요" 정도만 언급
-- 쿠팡이츠 "묶음배달" 기능은 존재하지 않으니 절대 언급 금지
-- 땡겨요는 정산서상 수수료율이 낮아 보이지만 배달대행비 포함 실질 수수료율은 {_dg_실질수수료율:.1f}%임. 이 수치로 분석할 것
+            with tab_m7:
+                # 변동비 항목별 막대 그래프
+                item_colors={
+                    '동원 물류비':'#1D9E75','만월상회 (음료원액)':'#f97316',
+                    '계란':'#fbbf24','포장박스':'#6b7280',
+                    '배달대행비':'#dc2626','소모품 카드결제':'#7c3aed',
+                    '기타 카드수수료':'#0ea5e9','광고비':'#ec4899'
+                }
+                fig_var=go.Figure()
+                for item_name, color in item_colors.items():
+                    vals=[d['변동비_세부'].get(item_name,0) for d in monthly_data]
+                    if any(v>0 for v in vals):
+                        fig_var.add_trace(go.Bar(
+                            name=item_name, x=months, y=vals,
+                            marker_color=color,
+                            text=[f"{v/10000:.1f}만" if v>0 else "" for v in vals],
+                            textposition='outside'
+                        ))
+                fig_var.update_layout(
+                    barmode='group', height=320,
+                    margin=dict(t=20,b=10,l=10,r=10),
+                    legend=dict(orientation='h',y=-0.25,font_size=11))
+                st.plotly_chart(fig_var,use_container_width=True)
+                st.caption("💡 항목별 지출을 월별로 비교해보세요. 갑자기 오른 항목이 있으면 원인을 확인해보세요!")
 
-=== 이번 달 핵심 숫자 ===
-총매출: {total_gross/10000:.1f}만원
-  - 배달: {delivery_gross/10000:.1f}만원 ({delivery_gross/total_gross*100:.1f}%)
-  - 오프라인: {pos_sales/10000:.1f}만원 ({pos_sales/total_gross*100:.1f}%)
-최종 순이익: {final/10000:.1f}만원 (이익률 {margin:.1f}%)
-손익분기점: {bep/10000:.1f}만원 ({'✅ 이번 달 달성' if total_rev>=bep else '❌ 이번 달 미달'})
+            # 플랫폼별 매출 비중 추이 (포스기 포함)
+            st.markdown("**📊 플랫폼별 매출 비중 추이**")
+            pf_colors_trend={
+                '배민':'#1D9E75','쿠팡':'#f97316','요기요':'#dc2626',
+                '땡겨요':'#7c3aed','네이버':'#059669','포스기':'#6b7280'
+            }
+            fig_pf=go.Figure()
+            for pf, color in pf_colors_trend.items():
+                vals=[d['플랫폼매출'].get(pf,0) for d in monthly_data]
+                if any(v>0 for v in vals):
+                    fig_pf.add_trace(go.Bar(
+                        name=pf, x=months, y=vals,
+                        marker_color=color,
+                        text=[f"{v/10000:.0f}만" if v>0 else "" for v in vals],
+                        textposition='inside', textfont_color='white'
+                    ))
+            fig_pf.update_layout(
+                barmode='stack', height=300,
+                margin=dict(t=10,b=10,l=10,r=10),
+                legend=dict(orientation='h',y=-0.2,font_size=11))
+            st.plotly_chart(fig_pf,use_container_width=True)
+            st.caption("💡 배달앱과 오프라인 비중 변화를 확인해보세요. 수수료 낮은 채널 비중이 늘수록 유리해요!")
 
-=== 원가 구조 (100원 팔면) ===
-전체 수수료율: {전체수수료율*100:.1f}% 나감 (배달앱+카드수수료 합산)
-배달앱만 수수료율: {배달수수료율*100:.1f}%
-재료비율: {_재료비율:.1f}% 나감 (순수 재료비만)
-변동비율 전체: {변동비율*100:.1f}% 나감 (재료비+배달대행비+광고비 포함)
-내 손에 남는 돈: {공헌이익률*100:.1f}%
-
-=== 비용 구조 ===
-고정비: {fixed_total/10000:.1f}만원
-  - 월세: {rent/10000:.1f}만원 / 관리비: {manage/10000:.1f}만원
-  - 인건비(세전): {labor/10000:.1f}만원 + 4대보험 회사부담: {insurance/10000:.1f}만원 = 실지출 {_인건비실지출/10000:.1f}만원
-  - 기장료: {jangryeo/10000:.1f}만원 / 포스기유지비: {pos_maint/10000:.1f}만원
-변동비: {var_total/10000:.1f}만원 (매출의 {변동비율*100:.1f}%)
-  - 동원: {dongwon/10000:.1f}만원 / 만월상회: {manwol/10000:.1f}만원 / 계란: {eggs/10000:.1f}만원
-  - 박스: {boxes/10000:.1f}만원 / 배달대행비: {delivery_agency/10000:.1f}만원
-  - 소모품: {consumables/10000:.1f}만원 / SNS광고: {ad_cost/10000:.1f}만원
-
-=== 플랫폼별 수익 ===
-{chr(10).join(pf_detail)}
-※ 땡겨요 실질 수수료율(배달대행비 포함): {_dg_실질수수료율:.1f}%
-{_bd_detail}
-{_cp_detail}
-{_yg_detail}
-총 플랫폼 수수료: {total_platform_fee/10000:.1f}만원 (배달매출의 {_delivery_fee_pct:.1f}%)
-
-=== 분석 구성 (반드시 이 3가지로 나눠서) ===
-
-## 1. 🚨 지금 당장 고쳐야 할 것
-- 이 가맹점 데이터에서만 나오는 구체적인 문제점 2가지
-- 각각 "이걸 고치면 월 약 XX만원 더 남아요" 로 효과 계산
-- 수치 근거 반드시 포함
-
-## 2. ✅ 오늘 당장 할 수 있는 것
-- 오늘 바로 실행 가능한 것 2~3가지
-- 구체적으로 "어떻게" 하는지 알려주기
-- 각각 금액 효과 포함
-
-## 3. 📈 3~6개월 후를 보고 해야 할 것
-- 플랫폼 구성, 객단가, 재료비율 관리 등 중장기 방향 2~3가지
-- 지금 이 가맹점 상황에 맞는 구체적인 방향 제시
-- "이렇게 하면 6개월 후 월 XX만원 더 남을 수 있어요" 형태로
-
-마지막에 한 줄 요약으로 마무리해주세요.
-각 항목 4~5문장으로 작성해주세요."""
-
-                try:
-                    _resp=_requests.post(_CLAUDE_URL,
-                        headers={"Content-Type":"application/json","x-api-key":_ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
-                        json={"model":_CLAUDE_MODEL,"max_tokens":2500,"messages":[{"role":"user","content":_prompt}]},
-                        timeout=90)
-                    if _resp.status_code==200:
-                        st.session_state["ai_comment"]=_resp.json()["content"][0]["text"]
-                        st.rerun()
-                    else:
-                        st.error(f"AI 분석 오류: {_resp.status_code}")
-                except Exception as _e:
-                    st.error(f"AI 분석 오류: {_e}")
 
     st.divider()
     if total_rev>0 or total_gross>0:
